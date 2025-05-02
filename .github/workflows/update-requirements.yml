@@ -1,0 +1,49 @@
+name: Update requirements.txt
+
+on:
+  push:
+  schedule:
+    - cron: '0 3 * * 1'  # Every Monday at 3:00 AM UTC
+
+jobs:
+  update-requirements:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install pipreqs
+        run: pip install pipreqs
+
+      - name: Update requirements.txt from src/
+        run: |
+          # Backup existing file if needed
+          cp requirements.txt requirements.txt.bak 2>/dev/null || true
+          
+          # Generate updated requirements
+          pipreqs ./src --force --savepath requirements.txt
+          
+          # Check for changes
+          if ! cmp -s requirements.txt requirements.txt.bak; then
+            echo "✅ requirements.txt was updated."
+          else
+            echo "ℹ️ requirements.txt is already up-to-date."
+            rm requirements.txt.bak
+            exit 0
+          fi
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add requirements.txt
+          git commit -m "Auto-update requirements.txt from src/" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

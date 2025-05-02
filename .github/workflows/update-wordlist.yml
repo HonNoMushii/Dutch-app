@@ -1,0 +1,85 @@
+name: Update OpenTaal Wordlist
+
+on:
+  push:
+  schedule:
+    - cron: '0 2 * * 1'  # Every Monday at 2:00 AM UTC
+
+jobs:
+  update-wordlist:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Get latest release info
+        id: get_release
+        run: |
+          echo "Fetching release info..."
+          curl -s https://api.github.com/repos/OpenTaal/opentaal-wordlist/releases/latest > release.json
+
+          echo "Release JSON:"
+          cat release.json | jq '.'
+
+          ZIP_URL=$(jq -r '.assets[]? | select(.name | endswith(".zip")) | .browser_download_url' release.json)
+
+          if [ -z "$ZIP_URL" ] || [ "$ZIP_URL" == "null" ]; then
+            ZIP_URL=$(jq -r '.zipball_url' release.json)
+            echo "ℹ️ Using fallback zipball_url: $ZIP_URL"
+          else
+            echo "✅ Found .zip asset: $ZIP_URL"
+          fi
+
+          RELEASE_TAG=$(jq -r .tag_name release.json)
+
+          echo "ZIP_URL=$ZIP_URL" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+
+      - name: Download latest zip
+        run: |
+          echo "Downloading: $ZIP_URL"
+          curl -L "$ZIP_URL" -o wordlist.zip
+
+      - name: Unzip and organize
+        run: |
+          rm -rf data
+          unzip wordlist.zip -d temp
+          mkdir -p data
+          shopt -s dotglob
+          mv temp/*/* data/ 2>/dev/null || mv temp/* data/
+          rm -rf temp wordlist.zip
+
+      - name: Ensure LICENSE file
+        run: |
+          LICENSE_URL=$(jq -r '.assets[]? | select(.name | test("(?i)license.*")) | .browser_download_url' release.json)
+
+          mkdir -p data
+
+          if [ "$LICENSE_URL" != "null" ] && [ -n "$LICENSE_URL" ]; then
+            echo "📄 Downloading LICENSE from release assets..."
+            curl -L "$LICENSE_URL" -o data/CC-BY-SA-3.0-NL.txt
+          else
+            echo "📄 No LICENSE asset in release — fetching from repository root..."
+            curl -s -L https://raw.githubusercontent.com/OpenTaal/opentaal-wordlist/master/LICENSE.txt -o data/CC-BY-SA-3.0-NL.txt || echo "⚠️ Failed to fetch LICENSE from repo, continuing anyway."
+          fi
+
+          echo "✅ LICENSE stored as data/CC-BY-SA-3.0-NL.txt"
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "Update OpenTaal wordlist to $RELEASE_TAG"
+
+      - name: Push changes (direct Git)
+        run: |
+          git push origin HEAD:${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

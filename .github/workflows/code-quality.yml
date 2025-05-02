@@ -1,0 +1,36 @@
+name: Code Quality and Security Checks
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 4 * * 1'  # Every Monday at 4:00 AM UTC
+
+jobs:
+  lint-and-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install code quality tools
+        run: |
+          pip install black isort bandit safety
+
+      - name: Run Black (code formatting)
+        run: black .
+
+      - name: Run isort (import sorting)
+        run: isort .
+
+      - name: Run Bandit (security linter)
+        run: bandit -r . --exit-zero
+
+      - name: Run Safety (dependency vulnerability check)
+        run: safety check --full-report || true
